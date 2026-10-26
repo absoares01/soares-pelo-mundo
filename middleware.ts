@@ -5,6 +5,8 @@ import { NextResponse, type NextRequest } from "next/server";
 // Se o Supabase não estiver configurado, roda em "modo local" sem login — mas
 // bloqueia buscas reais em produção para ninguém consumir sua cota da SerpApi.
 
+type CookieToSet = { name: string; value: string; options?: object };
+
 function json(status: number, error: string) {
   return NextResponse.json({ error }, { status });
 }
@@ -26,10 +28,10 @@ export async function middleware(request: NextRequest) {
   const supabase = createServerClient(url, anon, {
     cookies: {
       getAll: () => request.cookies.getAll(),
-      setAll: (list) => {
+      setAll: (list: CookieToSet[]) => {
         list.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request });
-        list.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+        list.forEach(({ name, value, options }) => response.cookies.set({ name, value, ...options }));
       },
     },
   });
