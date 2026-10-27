@@ -12,6 +12,7 @@ const links = [
   { href: "/clientes", label: "Clientes" },
   { href: "/historico", label: "Histórico" },
   { href: "/comparar", label: "Comparar" },
+  { href: "/alertas", label: "🔔 Alertas" },
 ];
 
 const hasAuth = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);

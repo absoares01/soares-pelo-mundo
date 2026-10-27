@@ -19,6 +19,8 @@ const moduleName: Record<string, string> = {
   datas: "Módulo 1",
   ocultos: "Módulo 2",
   escalas: "Módulo 3",
+  descontos: "Módulo 4",
+  "hidden-city": "Módulo 7",
 };
 
 export default function HistoryPage() {

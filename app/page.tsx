@@ -27,10 +27,34 @@ const modules = [
     text: "Procura rotas com 1 ou 2 escalas abaixo do seu valor, com a troca entre economia e tempo extra.",
     ready: true,
   },
-  { n: 4, title: "Descontos reais antes de comprar", text: "Cupons e promoções verificáveis.", ready: false },
-  { n: 5, title: "Onde a companhia cobra taxa", text: "Custo total real: bagagem, assento e extras.", ready: false },
-  { n: 6, title: "Risco real da tarifa barata", text: "Regras de alteração, cancelamento e reembolso.", ready: false },
-  { n: 7, title: "Hidden-city (trecho descartado)", text: "Economia contra riscos práticos e de política.", ready: false },
+  {
+    n: 4,
+    href: "/buscar/descontos",
+    title: "Descontos reais antes de comprar",
+    text: "Pesquisa cupons e promoções ativos em fontes oficiais, com link, validade e restrições. Só mostra o que dá para verificar.",
+    ready: true,
+  },
+  {
+    n: 5,
+    href: "/buscar/taxas",
+    title: "Onde a companhia cobra taxa",
+    text: "Custo total real: soma bagagem, assento e extras e mostra quando a tarifa mais barata deixa de ser a mais barata.",
+    ready: true,
+  },
+  {
+    n: 6,
+    href: "/buscar/risco",
+    title: "Risco real da tarifa barata",
+    text: "Calcula o prejuízo se precisar cancelar, mudar datas ou levar bagagem depois, e o custo esperado de cada tarifa.",
+    ready: true,
+  },
+  {
+    n: 7,
+    href: "/buscar/hidden-city",
+    title: "Hidden-city (trecho descartado)",
+    text: "Compara preços e lista os riscos práticos e de política da companhia. Não é uma recomendação.",
+    ready: true,
+  },
 ];
 
 export default function Home() {
@@ -76,6 +100,15 @@ export default function Home() {
           );
         })}
 
+        <Link href="/alertas" className="block">
+          <Card className="h-full transition hover:border-teal-500 hover:shadow-md">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Automação</p>
+            <h2 className="mt-1 text-lg font-bold">🔔 Alertas de preço</h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              Receba um e-mail quando o preço de uma rota chegar ao valor-alvo ou cair.
+            </p>
+          </Card>
+        </Link>
         <Link href="/clientes" className="block">
           <Card className="h-full transition hover:border-teal-500 hover:shadow-md">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Gestão</p>

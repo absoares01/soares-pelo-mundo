@@ -68,6 +68,7 @@ interface Props {
   form: CommonForm;
   set: <K extends keyof CommonForm>(key: K, value: CommonForm[K]) => void;
   returnRequired?: boolean;
+  hideReturn?: boolean;
   showNearby?: boolean;
   showFees?: boolean;
   children?: ReactNode; // campos específicos do módulo
@@ -127,7 +128,7 @@ function ClientSelect({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
-export function CommonFields({ form, set, returnRequired = false, showNearby = true, showFees = true, children }: Props) {
+export function CommonFields({ form, set, returnRequired = false, hideReturn = false, showNearby = true, showFees = true, children }: Props) {
   return (
     <div className="space-y-4">
       <datalist id="airports-list">
@@ -150,15 +151,17 @@ export function CommonFields({ form, set, returnRequired = false, showNearby = t
             required
           />
         </Field>
-        <Field label={returnRequired ? "Data de volta" : "Data de volta (vazio = só ida)"}>
-          <input
-            type="date"
-            className={inputCls}
-            value={form.returnDate}
-            onChange={(e) => set("returnDate", e.target.value)}
-            required={returnRequired}
-          />
-        </Field>
+        {!hideReturn && (
+          <Field label={returnRequired ? "Data de volta" : "Data de volta (vazio = só ida)"}>
+            <input
+              type="date"
+              className={inputCls}
+              value={form.returnDate}
+              onChange={(e) => set("returnDate", e.target.value)}
+              required={returnRequired}
+            />
+          </Field>
+        )}
       </div>
 
       {children}

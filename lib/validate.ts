@@ -123,4 +123,41 @@ export function parseRoutes(body: Raw): Result<RoutesInput> {
   return { ok: true, value: { ...c.value, maxPrice, maxLayoverHours } };
 }
 
+export interface HiddenInput {
+  origin: string[];
+  destination: string[]; // exatamente um aeroporto: onde o viajante realmente desembarca
+  outDate: string;
+  adults: number;
+  currency: string;
+  travelClass: 1 | 2 | 3 | 4;
+  candidates: string[]; // cidades "além" a pesquisar (vazio = lista padrão do app)
+}
+
+export function parseHidden(body: Raw): Result<HiddenInput> {
+  if (str(body.returnDate)) {
+    return { ok: false, error: "O módulo hidden-city só analisa passagens de ida (one-way). Deixe a data de volta em branco." };
+  }
+  const c = parseCommon(body, { requireReturn: false });
+  if (!c.ok) return c;
+  if (c.value.destination.length !== 1) {
+    return { ok: false, error: "Informe um único aeroporto de destino: é onde o viajante realmente desembarca." };
+  }
+  const candidates = codesOrEmpty(body.candidates).filter((x) => x !== c.value.destination[0] && !c.value.origin.includes(x));
+  if (str(body.candidates) && !isValidCodeList(str(body.candidates))) {
+    return { ok: false, error: "Cidades além do destino inválidas. Use códigos IATA separados por vírgula." };
+  }
+  return {
+    ok: true,
+    value: {
+      origin: c.value.origin,
+      destination: c.value.destination,
+      outDate: c.value.outDate,
+      adults: c.value.adults,
+      currency: c.value.currency,
+      travelClass: c.value.travelClass,
+      candidates: Array.from(new Set(candidates)).slice(0, 8),
+    },
+  };
+}
+
 export { addDays };

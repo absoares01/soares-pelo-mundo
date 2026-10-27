@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:logic": "tsx scripts/test-logic.ts"
+    "test:logic": "tsx scripts/test-logic.ts && tsx scripts/test-modules-4-7.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
