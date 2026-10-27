@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { formatDateTimeBR, formatDuration, formatMoney, formatStops, formatTime } from "@/lib/format";
 import type { Flight, ProposalItem } from "@/lib/types";
@@ -23,10 +24,11 @@ interface Props {
   badges?: { text: string; tone?: "green" | "blue" | "amber" | "slate" | "red" }[];
   priceOverride?: number; // ex.: custo final estimado
   priceNote?: string;
+  noProposal?: boolean; // esconde o botão de proposta (ex.: módulo hidden-city)
   children?: ReactNode;
 }
 
-export function FlightCard({ flight: f, context, label, badges, priceOverride, priceNote, children }: Props) {
+export function FlightCard({ flight: f, context, label, badges, priceOverride, priceNote, noProposal, children }: Props) {
   const [open, setOpen] = useState(false);
   const cart = useCart();
   const itemId = `${f.id}#${context.outDate}#${context.returnDate ?? ""}`;
@@ -94,9 +96,27 @@ export function FlightCard({ flight: f, context, label, badges, priceOverride, p
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button variant={inCart ? "secondary" : "primary"} onClick={addToCart} disabled={inCart}>
-          {inCart ? "✓ Na proposta" : "+ Adicionar à proposta"}
-        </Button>
+        {!noProposal && (
+          <Button variant={inCart ? "secondary" : "primary"} onClick={addToCart} disabled={inCart}>
+            {inCart ? "✓ Na proposta" : "+ Adicionar à proposta"}
+          </Button>
+        )}
+        {!noProposal && !context.mock && (
+          <Link
+            href={`/alertas?${new URLSearchParams({
+              origin: context.origin,
+              destination: context.destination,
+              outDate: context.outDate,
+              ...(context.returnDate ? { returnDate: context.returnDate } : {}),
+              adults: String(context.adults),
+              currency: f.currency,
+              label: `${context.origin} → ${context.destination}`,
+            }).toString()}`}
+            className="inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            🔔 Criar alerta
+          </Link>
+        )}
         <Button variant="ghost" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
           {open ? "Ocultar detalhes" : "Ver detalhes"}
         </Button>

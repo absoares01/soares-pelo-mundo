@@ -1,7 +1,8 @@
 import { TTLCache } from "./async";
 import { mockFlightOptions } from "./mock";
+import { toTextArray } from "./analysis/booking";
 import { normalizeAll, type RawFlightOption } from "./normalize";
-import type { FlightQuery, FlightQueryResult } from "./types";
+import type { BookingOption, FlightQuery, FlightQueryResult } from "./types";
 
 // Cliente da SerpApi (engine=google_flights). Camada única de dados:
 // para trocar de provedor no futuro, basta reimplementar `searchFlights`.
@@ -37,6 +38,7 @@ function cacheKey(q: FlightQuery): string {
     q.stops ?? 0,
     q.maxPrice ?? 0,
     q.travelClass ?? 1,
+    q.mockVia ?? "",
   ]);
 }
 
@@ -107,4 +109,116 @@ async function callSerpApi(q: FlightQuery): Promise<Omit<FlightQueryResult, "fro
 export async function searchFlights(q: FlightQuery): Promise<FlightQueryResult> {
   const { value, cached } = await cache.wrap(cacheKey(q), () => callSerpApi(q));
   return { ...value, fromCache: cached };
+}
+
+// ---------- Opções de reserva (bagagem e preço por vendedor) ----------
+// ATENÇÃO: os nomes dos campos de "booking_options" foram escritos a partir da
+// documentação pública e ainda NÃO foram testados com uma chave real. Tudo é lido de
+// forma defensiva: se um campo não existir, o dado aparece como "não informado".
+
+interface RawBooking {
+  together?: RawBookingEntry;
+  separate_tickets?: boolean;
+}
+interface RawBookingEntry {
+  book_with?: string;
+  marketed_as?: unknown;
+  price?: number;
+  baggage_prices?: unknown;
+  extensions?: unknown;
+}
+interface BookingResponse {
+  error?: string;
+  best_flights?: RawFlightOption[];
+  other_flights?: RawFlightOption[];
+  booking_options?: (RawBooking & RawBookingEntry)[];
+  baggage_prices?: unknown;
+}
+
+async function serpGet(params: Record<string, string>): Promise<BookingResponse> {
+  const key = process.env.SERPAPI_KEY;
+  if (!key) throw new Error("SERPAPI_KEY não configurada.");
+  const url = new URL(ENDPOINT);
+  const p = url.searchParams;
+  p.set("engine", "google_flights");
+  p.set("api_key", key);
+  p.set("hl", "pt");
+  p.set("gl", "br");
+  for (const [k, v] of Object.entries(params)) p.set(k, v);
+  const res = await fetch(url, { cache: "no-store" });
+  let body: BookingResponse | undefined;
+  try {
+    body = (await res.json()) as BookingResponse;
+  } catch {
+    body = undefined;
+  }
+  if (!res.ok || body?.error) throw new Error(`SerpApi: ${body?.error ?? `HTTP ${res.status}`}`);
+  return body ?? {};
+}
+
+export interface BookingLookup {
+  options: BookingOption[];
+  baggage: string[]; // textos de bagagem da fonte, sem interpretação
+  credits: number;
+  note?: string;
+}
+
+export async function fetchBookingOptions(input: {
+  origin: string;
+  destination: string;
+  outDate: string;
+  returnDate?: string;
+  currency: string;
+  adults: number;
+  travelClass?: number;
+  bookingToken?: string;
+  departureToken?: string;
+}): Promise<BookingLookup> {
+  const base: Record<string, string> = {
+    departure_id: input.origin,
+    arrival_id: input.destination,
+    outbound_date: input.outDate,
+    type: input.returnDate ? "1" : "2",
+    currency: input.currency,
+    adults: String(input.adults),
+  };
+  if (input.returnDate) base.return_date = input.returnDate;
+  if (input.travelClass) base.travel_class = String(input.travelClass);
+
+  let credits = 0;
+  let token = input.bookingToken;
+  let note: string | undefined;
+
+  // Ida e volta: o token da ida leva à lista de voltas; usamos a primeira opção, o que
+  // basta para ler a política de bagagem da companhia (não para fixar a volta exata).
+  if (!token && input.departureToken) {
+    const step = await serpGet({ ...base, departure_token: input.departureToken });
+    credits++;
+    const first = [...(step.best_flights ?? []), ...(step.other_flights ?? [])].find((f) => f.booking_token);
+    token = first?.booking_token;
+    note = "Em ida e volta, a leitura usa a primeira opção de volta; a política de bagagem costuma ser a mesma da companhia.";
+  }
+  if (!token) {
+    return { options: [], baggage: [], credits, note: "Esta opção não traz o código de reserva (booking_token); digite as taxas manualmente." };
+  }
+
+  const body = await serpGet({ ...base, booking_token: token });
+  credits++;
+
+  const options: BookingOption[] = [];
+  for (const raw of body.booking_options ?? []) {
+    const e: RawBookingEntry = raw.together ?? raw;
+    const bagTexts = [
+      ...toTextArray(e.baggage_prices),
+      ...toTextArray(e.extensions).filter((t) => /bag|bagagem|mala|carry/i.test(t)),
+    ];
+    options.push({
+      bookWith: typeof e.book_with === "string" ? e.book_with : "",
+      isAirline: false,
+      price: typeof e.price === "number" ? e.price : null,
+      marketedAs: toTextArray(e.marketed_as),
+      baggage: bagTexts,
+    });
+  }
+  return { options, baggage: toTextArray(body.baggage_prices), credits, note };
 }

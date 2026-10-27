@@ -6,6 +6,8 @@ export interface AppConfig {
   liveData: boolean;
   database: boolean;
   ai: boolean;
+  email: boolean;
+  cron: boolean;
 }
 
 let cached: AppConfig | null = null;

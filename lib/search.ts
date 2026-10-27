@@ -1,5 +1,6 @@
 import { buildAlternatives, mergeUnique } from "./analysis/alternatives";
 import { analyzeDates, buildDateCombos, pickComboResult } from "./analysis/dates";
+import { analyzeHiddenCity, defaultCandidates } from "./analysis/hidden";
 import { analyzeRoutes } from "./analysis/routes";
 import { mapLimit } from "./async";
 import { nearbyAirports } from "./airports";
@@ -10,10 +11,12 @@ import type {
   Flight,
   FlightQuery,
   FlightQueryResult,
+  HiddenCityOption,
+  HiddenCityResult,
   RoutesResult,
   SearchMeta,
 } from "./types";
-import type { AlternativesInput, DatesInput, RoutesInput } from "./validate";
+import type { AlternativesInput, DatesInput, HiddenInput, RoutesInput } from "./validate";
 
 // Orquestra várias consultas à SerpApi e entrega os resultados já analisados.
 
@@ -248,5 +251,74 @@ export async function runRoutesSearch(input: RoutesInput): Promise<RoutesResult>
     options: analysis.options,
     reference: analysis.reference,
     discarded: analysis.discarded,
+  };
+}
+
+// ---------------- Módulo 7 (hidden-city) ----------------
+// Só compara preços: busca o bilhete de ida até o destino real (referência) e bilhetes
+// até cidades "além" que passem por esse destino numa conexão. Nunca recomenda a prática.
+export async function runHiddenCitySearch(input: HiddenInput): Promise<HiddenCityResult> {
+  const t = newTracker();
+  const stopover = input.destination[0];
+  const candidates = (input.candidates.length ? input.candidates : defaultCandidates(stopover)).slice(0, 8);
+  if (candidates.length === 0) {
+    throw new Error(
+      `Não há cidades "além" padrão para ${stopover}. Informe, no campo próprio, até 8 códigos de aeroportos além do destino (ex.: BOS,PHL).`,
+    );
+  }
+
+  const baseFlights = await run(t, {
+    origin: join(input.origin),
+    destination: stopover,
+    outDate: input.outDate,
+    currency: input.currency,
+    adults: input.adults,
+    travelClass: input.travelClass,
+  });
+  const priced = baseFlights.filter((f) => f.price !== null).sort((a, b) => (a.price as number) - (b.price as number));
+  const baseline = priced[0] ?? null;
+
+  const m = meta(t, input.currency);
+  const notes: string[] = [];
+  let options: HiddenCityOption[] = [];
+
+  if (!baseline) {
+    notes.push("Não foi encontrado voo direto ao destino real nessa data, então não há preço de referência para comparar.");
+  } else {
+    const lists = await mapLimit(candidates, 4, async (c) => {
+      const flights = await run(t, {
+        origin: join(input.origin),
+        destination: c,
+        outDate: input.outDate,
+        currency: input.currency,
+        adults: input.adults,
+        stops: 3,
+        travelClass: input.travelClass,
+        mockVia: stopover,
+      });
+      return analyzeHiddenCity(flights, { stopover, baseline, limit: 3 });
+    });
+    const seen = new Set<string>();
+    options = lists
+      .flat()
+      .sort((a, b) => b.savings - a.savings)
+      .filter((o) => (seen.has(o.flight.id) ? false : (seen.add(o.flight.id), true)))
+      .slice(0, 8)
+      .map((o, i) => ({ ...o, rank: i + 1 }));
+    if (options.length === 0) {
+      notes.push(
+        "Nenhum bilhete até as cidades pesquisadas que passe por " +
+          stopover +
+          " saiu mais barato que o voo direto ao destino real. Isso é comum: a diferença só aparece em alguns mercados e datas.",
+      );
+    }
+  }
+  return {
+    meta: { ...m },
+    query: { origin: join(input.origin), destination: stopover, outDate: input.outDate, adults: input.adults, candidates },
+    baseline,
+    options,
+    checkedCandidates: candidates.length,
+    notes,
   };
 }

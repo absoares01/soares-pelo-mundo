@@ -52,7 +52,7 @@ function addMinutes(dt: string, minutes: number): string {
 }
 
 export function mockFlightOptions(q: FlightQuery): RawFlightOption[] {
-  const rng = mulberry32(hashString([q.origin, q.destination, q.outDate, q.returnDate ?? "", q.stops ?? 0].join("|")));
+  const rng = mulberry32(hashString([q.origin, q.destination, q.outDate, q.returnDate ?? "", q.stops ?? 0, q.mockVia ?? ""].join("|")));
   const origins = parseCodes(q.origin);
   const dests = parseCodes(q.destination);
   const outF = DOW_FACTOR[weekdayIndex(q.outDate)];
@@ -64,7 +64,8 @@ export function mockFlightOptions(q: FlightQuery): RawFlightOption[] {
   for (let i = 0; i < n; i++) {
     const o = origins[i % origins.length];
     const d = dests[Math.floor(i / origins.length) % dests.length] ?? dests[0];
-    const stops = Math.min(maxStops, Math.floor(rng() * 3));
+    const via = q.mockVia && q.mockVia !== o && q.mockVia !== d ? q.mockVia : undefined;
+    const stops = via ? 1 : Math.min(maxStops, Math.floor(rng() * 3));
     const airline = AIRLINES[Math.floor(rng() * AIRLINES.length)];
     const hubPool = HUBS.filter((h) => h !== o && h !== d);
 
@@ -73,7 +74,10 @@ export function mockFlightOptions(q: FlightQuery): RawFlightOption[] {
     let cursor = `${q.outDate} ${String(depHour).padStart(2, "0")}:${String(depMin).padStart(2, "0")}`;
 
     const points = [o];
-    for (let s = 0; s < stops; s++) points.push(hubPool[Math.floor(rng() * hubPool.length)]);
+    for (let s = 0; s < stops; s++) {
+      const hub = hubPool[Math.floor(rng() * hubPool.length)];
+      points.push(via && s === 0 ? via : hub);
+    }
     points.push(d);
 
     const segments: RawSegment[] = [];
@@ -109,6 +113,7 @@ export function mockFlightOptions(q: FlightQuery): RawFlightOption[] {
     const base = 1100 + rng() * 2200;
     let price = base * outF * retF * (1 - 0.12 * stops);
     if (airline.code === "JA") price *= 0.82;
+    if (via) price *= 0.8; // exemplo: bilhete até a cidade "além" costuma sair mais barato
     if (i >= origins.length) price *= 0.93; // aeroportos alternativos tendem a variar
     price = Math.round(price * Math.max(1, q.adults));
     if (q.maxPrice && price > q.maxPrice) continue;

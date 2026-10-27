@@ -24,7 +24,8 @@ export function ResultMeta({ meta }: { meta: SearchMeta }) {
         ))}
       <p className="text-xs text-slate-500 dark:text-slate-400">
         Consulta feita em {formatSearchedAt(meta.searchedAt)}
-        {meta.mock ? "" : ` · ${meta.creditsUsed} crédito(s) da SerpApi usados`} · Preços e regras mudam rápido: confirme
+        {meta.mock || meta.aiSearches !== undefined ? "" : ` · ${meta.creditsUsed} crédito(s) da SerpApi usados`}
+        {meta.aiSearches !== undefined && ` · ${meta.aiSearches} busca(s) na web feitas pela IA`} · Preços e regras mudam rápido: confirme
         antes de comprar.
         {meta.googleFlightsUrl && (
           <>

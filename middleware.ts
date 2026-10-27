@@ -17,6 +17,10 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isApi = path.startsWith("/api/");
 
+  // A rotina diária de alertas (Vercel Cron) não tem login: ela se autentica sozinha
+  // com CRON_SECRET dentro da própria rota.
+  if (path.startsWith("/api/cron/")) return NextResponse.next();
+
   if (!url || !anon) {
     if (process.env.NODE_ENV === "production" && process.env.SERPAPI_KEY && isApi) {
       return json(503, "Configure o Supabase (login) antes de usar a chave real da SerpApi em produção.");
