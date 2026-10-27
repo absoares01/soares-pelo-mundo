@@ -4,13 +4,41 @@
 
 :root {
   color-scheme: light;
+  /* Camada sobre a imagem de fundo: mantém os textos legíveis. */
+  --veil: rgba(248, 250, 252, 0.5);
 }
 .dark {
   color-scheme: dark;
+  --veil: rgba(2, 6, 23, 0.84);
+}
+
+/* Em tela vertical a imagem (horizontal) é muito cortada; a camada fica mais forte
+   para o texto da arte, cortado nas laterais, não atrapalhar a leitura. */
+@media (orientation: portrait) {
+  :root {
+    --veil: rgba(248, 250, 252, 0.74);
+  }
+  .dark {
+    --veil: rgba(2, 6, 23, 0.9);
+  }
 }
 
 body {
   @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+}
+
+/* Imagem de fundo que cobre toda a janela visível e fica parada ao rolar.
+   Usa um elemento fixo (e não background-attachment: fixed) porque o Safari do
+   iPad/iPhone não respeita essa propriedade. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(var(--veil), var(--veil)),
+    url("/fundo.jpg") center / cover no-repeat;
+  pointer-events: none;
 }
 
 /* Impressão / "Salvar como PDF" da proposta */
@@ -21,6 +49,9 @@ body {
   body {
     background: white !important;
     color: black !important;
+  }
+  body::before {
+    display: none;
   }
   .print-card {
     break-inside: avoid;
