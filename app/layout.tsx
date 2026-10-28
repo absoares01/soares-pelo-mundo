@@ -8,6 +8,8 @@ export const metadata: Metadata = {
   title: "Soares pelo Mundo — Buscador de passagens",
   description: "Painel de busca e comparação de passagens para assessoria de viagens.",
   robots: { index: false, follow: false },
+  // Ícone na tela de início do iPhone/iPad: vem de app/apple-icon.png (180x180).
+  appleWebApp: { capable: true, title: "Soares pelo Mundo", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
