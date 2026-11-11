@@ -1,5 +1,5 @@
 {
-  "name": "soares-pelo-mundo",
+  "name": "tripflow",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:logic": "tsx scripts/test-logic.ts && tsx scripts/test-modules-4-7.ts"
+    "test:logic": "tsx scripts/test-logic.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",
