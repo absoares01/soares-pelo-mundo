@@ -2,10 +2,10 @@
 
 import { Button } from "./ui";
 
-export function PrintButton({ label = "Baixar em PDF / imprimir" }: { label?: string }) {
+export function PrintButton({ label = "Baixar PDF" }: { label?: string }) {
   return (
-    <Button variant="secondary" onClick={() => window.print()}>
-      {label}
+    <Button onClick={() => window.print()} variant="accent">
+      ⬇ {label}
     </Button>
   );
 }

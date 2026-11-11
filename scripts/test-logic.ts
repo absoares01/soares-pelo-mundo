@@ -1,103 +1,153 @@
-// Teste de fumaça da lógica de análise, em MODO EXEMPLO (sem SERPAPI_KEY, sem rede).
-// Rode com: npm run test:logic
-
+// Testes da lógica pura do TripFlow. Rode com: npm run test:logic
 import assert from "node:assert/strict";
-import { addDays, todayISO } from "../lib/dates";
-import { runAlternativesSearch, runDatesSearch, runRoutesSearch } from "../lib/search";
-import { parseAlternatives, parseDates, parseRoutes } from "../lib/validate";
-import { buildDateCombos } from "../lib/analysis/dates";
-import { formatMoney } from "../lib/format";
+import { groupByCategory, itemCost, itemPrice, markupFromPrice, perPerson, priceFromMarkup, quotationTotals } from "../lib/calc";
+import { computeDashboard, type DQuotation } from "../lib/dashboard";
+import { centsToInput, dateBR, dateRange, daysBetween, addDaysISO, nightsBetween, parseMoneyInput, pct, weekdayName, whatsappLink } from "../lib/format";
+import { buildSampleData } from "../lib/sample";
 
-delete process.env.SERPAPI_KEY;
+let n = 0;
+const test = (name: string, fn: () => void) => {
+  fn();
+  n++;
+  console.log(`  ✓ ${name}`);
+};
 
-async function main() {
-  const out = addDays(todayISO(), 45);
-  const ret = addDays(out, 10);
-
-  // --- combinações de datas
-  const { combos, total } = buildDateCombos(out, ret, 3, 9);
-  assert.equal(combos[0].isOriginal, true, "primeira combinação deve ser a original");
-  assert.ok(combos.length <= 9 && total >= combos.length);
-  assert.ok(combos.every((c) => c.ret > c.out));
-  console.log(`combos: ${combos.length} de ${total}`);
-
-  // --- validação
-  const bad = parseDates({ origin: "GR", destination: "LIS", outDate: out, returnDate: ret });
-  assert.equal(bad.ok, false);
-  const pastDate = parseDates({ origin: "GRU", destination: "LIS", outDate: "2020-01-01", returnDate: "2020-01-10" });
-  assert.equal(pastDate.ok, false);
-
-  // --- módulo 1
-  const p1 = parseDates({ origin: "GRU", destination: "LIS", outDate: out, returnDate: ret, flexDays: 3, maxCombos: 9 });
-  assert.ok(p1.ok);
-  if (!p1.ok) return;
-  const r1 = await runDatesSearch(p1.value);
-  assert.equal(r1.meta.mock, true);
-  assert.ok(r1.meta.warnings[0].startsWith("DADOS DE EXEMPLO"));
-  assert.equal(r1.top.length, 3);
-  for (let i = 1; i < r1.top.length; i++) assert.ok(r1.top[i].finalPrice >= r1.top[i - 1].finalPrice);
-  assert.ok(r1.top[0].reasons.length > 0);
-  if (r1.baseline.price !== null) {
-    const t0 = r1.top[0];
-    assert.equal(t0.savingsAbs, r1.baseline.price - t0.finalPrice);
-    assert.ok((t0.savingsAbs as number) >= 0, "a melhor combinação nunca pode ser mais cara que a original");
-  }
-  console.log("M1 top:", r1.top.map((t) => `${t.combo.out}→${t.combo.ret} ${formatMoney(t.finalPrice)} (econ. ${t.savingsAbs})`));
-
-  // taxas estimadas entram no total (somente quando informadas)
-  const p1b = parseDates({
-    origin: "GRU", destination: "LIS", outDate: out, returnDate: ret, flexDays: 1, maxCombos: 3,
-    fees: { needsCheckedBag: true, checkedBagFee: 200 },
-  });
-  assert.ok(p1b.ok);
-  if (p1b.ok) {
-    const r = await runDatesSearch(p1b.value);
-    const t = r.top[0];
-    const extra = t.flight.baggage.status === "incluida" ? 0 : 400; // 200 × 2 trechos × 1 adulto
-    assert.equal(t.finalPrice, (t.flight.price as number) + extra);
-  }
-
-  // --- módulo 2
-  const p2 = parseAlternatives({ origin: "GRU", destination: "LIS", outDate: out, returnDate: ret, sort: "price", includeNearby: true });
-  assert.ok(p2.ok);
-  if (!p2.ok) return;
-  const r2 = await runAlternativesSearch(p2.value);
-  assert.ok(r2.query.originCluster.includes("CGH") && r2.query.originCluster.includes("VCP"));
-  assert.ok(r2.options.length > 0);
-  for (let i = 1; i < r2.options.length; i++) assert.ok(r2.options[i].finalPrice >= r2.options[i - 1].finalPrice);
-  const ids = new Set(r2.options.map((o) => o.flight.id));
-  assert.equal(ids.size, r2.options.length, "sem duplicatas");
-  const r2c = await runAlternativesSearch({ ...p2.value, sort: "convenience" });
-  for (let i = 1; i < r2c.options.length; i++) assert.ok(r2c.options[i].convenience <= r2c.options[i - 1].convenience);
-  console.log("M2:", r2.options.length, "opções; alternativos:", r2.options.filter((o) => o.altOrigin || o.altDestination).length);
-
-  // --- módulo 3
-  const p3 = parseRoutes({ origin: "GRU", destination: "LIS", outDate: out, returnDate: ret, maxPrice: 99999, maxLayoverHours: 8 });
-  assert.ok(p3.ok);
-  if (!p3.ok) return;
-  const r3 = await runRoutesSearch(p3.value);
-  assert.ok(r3.options.length <= 5);
-  for (const o of r3.options) {
-    assert.ok(o.flight.stops >= 1 && o.flight.stops <= 2);
-    assert.ok(o.flight.longestLayoverMin <= 8 * 60);
-    assert.ok(!o.flight.airportChange);
-    assert.ok((o.flight.price as number) <= 99999);
-    assert.ok(o.tradeoff.length > 0);
-  }
-  for (let i = 1; i < r3.options.length; i++) assert.ok((r3.options[i].flight.price as number) >= (r3.options[i - 1].flight.price as number));
-  const strict = parseRoutes({ origin: "GRU", destination: "LIS", outDate: out, maxPrice: 1 });
-  assert.ok(strict.ok);
-  if (strict.ok) {
-    const none = await runRoutesSearch(strict.value);
-    assert.equal(none.options.length, 0);
-    assert.ok(none.meta.warnings.some((w) => w.includes("Nenhuma rota")));
-  }
-  console.log("M3:", r3.options.map((o) => `${formatMoney(o.flight.price)} ${o.flight.stops}esc`));
-
-  console.log("\nOK — lógica dos módulos 1, 2 e 3 validada em modo exemplo.");
-}
-
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
+console.log("calc");
+test("preço a partir do markup e markup a partir do preço", () => {
+  assert.equal(priceFromMarkup(10000, 15), 11500);
+  assert.equal(Math.round(markupFromPrice(10000, 11500)), 15);
+  assert.equal(markupFromPrice(0, 500), 0);
 });
+test("totais, lucro e margem", () => {
+  const items = [
+    { quantity: 2, unit_cost_cents: 100000, unit_price_cents: 115000 }, // custo 2000 / preço 2300
+    { quantity: 1, unit_cost_cents: 50000, unit_price_cents: 60000 },
+  ];
+  const t = quotationTotals(items, 20000, 5000);
+  assert.equal(t.cost, 250000);
+  assert.equal(t.itemsPrice, 290000);
+  assert.equal(t.total, 290000 + 20000 - 5000);
+  assert.equal(t.profit, t.total - 250000);
+  assert.ok(Math.abs(t.marginPct - (t.profit / t.total) * 100) < 1e-9);
+});
+test("quantidade fracionária, valores inválidos e orçamento vazio", () => {
+  assert.equal(itemCost({ quantity: 2.5, unit_cost_cents: 1001, unit_price_cents: 0 }), 2503);
+  assert.equal(itemPrice({ quantity: NaN, unit_cost_cents: 0, unit_price_cents: 100 }), 0);
+  const e = quotationTotals([], 0, 0);
+  assert.deepEqual([e.total, e.profit, e.marginPct], [0, 0, 0]);
+});
+test("por pessoa e agrupamento por categoria", () => {
+  assert.equal(perPerson(100000, 2, 2), 25000);
+  assert.equal(perPerson(100000, 0, 0), 100000);
+  const g = groupByCategory([
+    { category: "passeio" as const, id: 1 },
+    { category: "voo" as const, id: 2 },
+    { category: "voo" as const, id: 3 },
+  ]);
+  assert.deepEqual(g.map((x) => [x.category, x.items.length]), [["voo", 2], ["passeio", 1]]);
+});
+
+console.log("format");
+test("valores em reais", () => {
+  assert.equal(parseMoneyInput("1.234,56"), 123456);
+  assert.equal(parseMoneyInput("R$ 1.234"), 123400);
+  assert.equal(parseMoneyInput("1234.5"), 123450);
+  assert.equal(parseMoneyInput(""), 0);
+  assert.equal(centsToInput(123450), "1234,50");
+  assert.equal(centsToInput(120000), "1200");
+  assert.equal(centsToInput(0), "");
+  assert.equal(pct(12.345), "12,3%");
+});
+test("datas", () => {
+  assert.equal(dateBR("2026-11-11"), "11/11/2026");
+  assert.equal(addDaysISO("2026-12-30", 3), "2027-01-02");
+  assert.equal(daysBetween("2026-11-11", "2026-11-14"), 3);
+  assert.equal(nightsBetween("2026-11-11", "2026-11-16"), 5);
+  assert.equal(nightsBetween("2026-11-11", null), null);
+  assert.equal(dateRange(null, null), "Datas a definir");
+  assert.equal(weekdayName("2026-11-11"), "quarta-feira");
+});
+test("link de WhatsApp", () => {
+  assert.equal(whatsappLink("(11) 98765-4321"), "https://wa.me/5511987654321");
+  assert.equal(whatsappLink("123"), null);
+});
+
+console.log("dados de exemplo");
+const TODAY = "2026-11-11";
+let seq = 0;
+const sample = buildSampleData(TODAY, () => `00000000-0000-4000-8000-${String(++seq).padStart(12, "0")}`);
+test("todos os ids são únicos e as relações apontam para linhas existentes", () => {
+  const all = [sample.customers, sample.quotations, sample.quotationItems, sample.itineraries, sample.itineraryDays, sample.itineraryItems, sample.proposals].flat();
+  const ids = all.map((r) => r.id as string);
+  assert.equal(new Set(ids).size, ids.length);
+  const has = (k: string, set: Set<string>, rows: Record<string, unknown>[]) => rows.forEach((r) => assert.ok(r[k] == null || set.has(r[k] as string), `${k} órfão`));
+  const cu = new Set(sample.customers.map((r) => r.id as string));
+  const qu = new Set(sample.quotations.map((r) => r.id as string));
+  const it = new Set(sample.itineraries.map((r) => r.id as string));
+  const da = new Set(sample.itineraryDays.map((r) => r.id as string));
+  has("customer_id", cu, [...sample.quotations, ...sample.itineraries, ...sample.proposals]);
+  has("quotation_id", qu, [...sample.quotationItems, ...sample.proposals]);
+  has("itinerary_id", it, [...sample.itineraryDays, ...sample.itineraryItems, ...sample.proposals]);
+  has("day_id", da, sample.itineraryItems);
+});
+test("totais gravados batem com os itens", () => {
+  for (const q of sample.quotations) {
+    const items = sample.quotationItems.filter((i) => i.quotation_id === q.id) as any[];
+    const t = quotationTotals(items, q.service_fee_cents as number, q.discount_cents as number);
+    assert.equal(q.total_price_cents, t.total, `${q.code} preço`);
+    assert.equal(q.total_cost_cents, t.cost, `${q.code} custo`);
+    assert.ok(t.profit > 0, `${q.code} deve dar lucro`);
+    assert.ok(t.marginPct > 5 && t.marginPct < 60, `${q.code} margem plausível (${t.marginPct.toFixed(1)}%)`);
+  }
+});
+test("valores constantes e tudo marcado como exemplo; sem custos vazando para propostas", () => {
+  for (const r of [...sample.customers, ...sample.quotations, ...sample.itineraries, ...sample.proposals]) assert.equal(r.is_sample, true);
+  for (const p of sample.proposals) assert.ok(!("total_cost_cents" in p) && !("unit_cost_cents" in p));
+});
+test("datas coerentes (ida antes da volta) e roteiro com um dia por data", () => {
+  for (const q of sample.quotations) assert.ok((q.start_date as string) < (q.end_date as string));
+  const it = sample.itineraries[0];
+  const days = sample.itineraryDays.filter((d) => d.itinerary_id === it.id);
+  assert.equal(days.length, daysBetween(it.start_date as string, it.end_date as string) + 1);
+  assert.equal(new Set(days.map((d) => d.day_date)).size, days.length);
+});
+test("linhas do mesmo lote têm as mesmas colunas (exigência do insert em lote)", () => {
+  for (const rows of [sample.customers, sample.quotations, sample.quotationItems, sample.itineraryDays, sample.itineraryItems, sample.proposals]) {
+    const keys = JSON.stringify(Object.keys(rows[0]).sort());
+    rows.forEach((r) => assert.equal(JSON.stringify(Object.keys(r).sort()), keys));
+  }
+});
+
+console.log("painel");
+test("indicadores a partir dos dados de exemplo", () => {
+  const dq: DQuotation[] = sample.quotations.map((q) => ({
+    id: q.id as string,
+    code: q.code as string,
+    title: q.title as string,
+    destination: q.destination as string,
+    status: q.status as DQuotation["status"],
+    start_date: q.start_date as string,
+    end_date: q.end_date as string,
+    total_price_cents: q.total_price_cents as number,
+    total_cost_cents: q.total_cost_cents as number,
+    customer_name: null,
+    updated_at: "2026-11-01T00:00:00Z",
+  }));
+  const s = computeDashboard(sample.customers as any, dq, sample.proposals as any, TODAY);
+  assert.equal(s.customers, 7);
+  assert.equal(s.confirmedTrips, 3);
+  assert.equal(s.activeQuotations, 3);
+  assert.equal(s.pendingProposals, 2);
+  const conf = dq.filter((q) => q.status === "confirmado");
+  assert.equal(s.revenue, conf.reduce((a, q) => a + q.total_price_cents, 0));
+  assert.equal(s.profit, s.revenue - conf.reduce((a, q) => a + q.total_cost_cents, 0));
+  // partidas futuras confirmadas: Orlando (+18) e Lisboa (+45); Buenos Aires já passou
+  assert.deepEqual(s.upcoming.map((u) => u.daysLeft), [18, 45]);
+  assert.equal(Object.values(s.customersByStatus).reduce((a, b) => a + b, 0), 7);
+});
+test("painel vazio não quebra", () => {
+  const s = computeDashboard([], [], [], TODAY);
+  assert.deepEqual([s.customers, s.revenue, s.marginPct, s.upcoming.length], [0, 0, 0, 0]);
+});
+
+console.log(`\n${n} testes passaram.`);

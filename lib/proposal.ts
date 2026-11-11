@@ -1,84 +1,74 @@
-import { formatDateBR } from "./dates";
-import { formatDateTimeBR, formatDuration, formatMoney, formatSearchedAt, formatStops } from "./format";
-import type { Flight, ProposalItem } from "./types";
+import { loadItineraryFull } from "./itinerary";
+import type { Proposal, ProposalBundle, PublicItem, QuotationItem } from "./types";
 
-// Versão da opção que o CLIENTE vê: sem tokens internos e sem anotações do consultor.
-export function sanitizeItem(item: ProposalItem): ProposalItem {
-  const f = item.flight;
-  const flight: Flight = {
-    ...f,
-    bookingToken: undefined,
-    departureToken: undefined,
-    extensions: [],
+type Db = { from: (table: string) => any };
+
+// Monta tudo o que a proposta precisa exibir. Custos e lucro são removidos aqui, em um único lugar,
+// para que nenhuma tela (nem a página pública) consiga mostrá-los por engano.
+export async function loadProposalBundle(db: Db, proposal: Proposal): Promise<ProposalBundle> {
+  const ownerId = proposal.owner_id;
+
+  const [profileRes, customerRes, quotationRes, itinerary] = await Promise.all([
+    ownerId ? db.from("tf_profiles").select("*").eq("id", ownerId).maybeSingle() : db.from("tf_profiles").select("*").limit(1).maybeSingle(),
+    proposal.customer_id ? db.from("tf_customers").select("name,email,phone").eq("id", proposal.customer_id).maybeSingle() : Promise.resolve({ data: null }),
+    proposal.quotation_id ? db.from("tf_quotations").select("*").eq("id", proposal.quotation_id).maybeSingle() : Promise.resolve({ data: null }),
+    proposal.include_itinerary && proposal.itinerary_id ? loadItineraryFull(db, proposal.itinerary_id) : Promise.resolve(null),
+  ]);
+
+  const q = quotationRes.data as Record<string, any> | null;
+  let items: PublicItem[] = [];
+  if (q) {
+    const { data } = await db.from("tf_quotation_items").select("*").eq("quotation_id", q.id).order("position");
+    items = ((data ?? []) as QuotationItem[]).map((i) => ({
+      id: i.id,
+      category: i.category,
+      description: i.description,
+      details: i.details,
+      item_date: i.item_date,
+      quantity: Number(i.quantity),
+      line_price_cents: Math.round(Number(i.quantity) * i.unit_price_cents),
+    }));
+  }
+
+  const p = (profileRes.data ?? {}) as Record<string, any>;
+  return {
+    proposal,
+    profile: {
+      agency_name: p.agency_name ?? null,
+      full_name: p.full_name ?? null,
+      tagline: p.tagline ?? null,
+      phone: p.phone ?? null,
+      email: p.email ?? null,
+      website: p.website ?? null,
+      instagram: p.instagram ?? null,
+      logo_url: p.logo_url ?? null,
+      brand_color: p.brand_color || "#0f1f3d",
+    },
+    customer: customerRes.data ? { name: customerRes.data.name, email: customerRes.data.email, phone: customerRes.data.phone } : null,
+    quotation: q
+      ? {
+          id: q.id,
+          code: q.code,
+          title: q.title,
+          destination: q.destination,
+          start_date: q.start_date,
+          end_date: q.end_date,
+          adults: q.adults,
+          children: q.children,
+          currency: q.currency,
+          service_fee_cents: q.service_fee_cents,
+          discount_cents: q.discount_cents,
+          total_price_cents: q.total_price_cents,
+          payment_terms: q.payment_terms,
+          inclusions: q.inclusions,
+          exclusions: q.exclusions,
+        }
+      : null,
+    items,
+    itinerary: itinerary as ProposalBundle["itinerary"],
   };
-  return { ...item, flight };
 }
 
-export interface ProposalView {
-  title: string;
-  clientName?: string | null;
-  currency: string;
-  items: ProposalItem[];
-  serviceFee: number;
-  message?: string | null;
-  validUntil?: string | null;
-  createdAt: string;
-  mock: boolean;
-}
-
-export function proposalTotals(view: Pick<ProposalView, "items" | "serviceFee">) {
-  const subtotal = view.items.reduce((s, i) => s + (i.flight.price ?? 0), 0);
-  return { subtotal, total: subtotal + (view.serviceFee || 0) };
-}
-
-export function parseProposalItems(raw: unknown): ProposalItem[] | null {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 10) return null;
-  const out: ProposalItem[] = [];
-  for (const r of raw) {
-    const it = r as Partial<ProposalItem>;
-    if (!it || typeof it !== "object" || !it.flight || !Array.isArray(it.flight.segments) || !it.context) return null;
-    if (typeof it.flight.price !== "number" || !Number.isFinite(it.flight.price)) return null;
-    out.push(sanitizeItem(it as ProposalItem));
-  }
-  return out;
-}
-
-function legLine(f: Flight): string {
-  const route = f.segments.map((s) => s.from).concat(f.segments[f.segments.length - 1].to).join(" → ");
-  return `${route} · ${formatStops(f.stops)} · ${formatDuration(f.durationMin)}`;
-}
-
-// Texto pronto para colar no WhatsApp.
-export function proposalToWhatsApp(view: ProposalView, link?: string): string {
-  const { subtotal, total } = proposalTotals(view);
-  const lines: string[] = [];
-  lines.push(`✈️ *${view.title}*`);
-  if (view.clientName) lines.push(`Olá, ${view.clientName}! Separei estas opções para você:`);
-  lines.push("");
-  view.items.forEach((it, i) => {
-    const f = it.flight;
-    lines.push(`*Opção ${i + 1}* — ${formatMoney(f.price, view.currency)}`);
-    lines.push(`${f.airlines.join(" + ")} · ${legLine(f)}`);
-    lines.push(
-      `Ida: ${formatDateTimeBR(f.departure)}${it.context.returnDate ? ` · Volta a partir de ${formatDateBR(it.context.returnDate)}` : ""}`,
-    );
-    lines.push(`Bagagem: ${f.baggage.status === "incluida" ? "incluída" : "confirmar regra com a companhia"}`);
-    lines.push("");
-  });
-  if (view.serviceFee > 0) {
-    lines.push(`Subtotal: ${formatMoney(subtotal, view.currency)}`);
-    lines.push(`Taxa de serviço: ${formatMoney(view.serviceFee, view.currency)}`);
-  }
-  if (view.items.length === 1 || view.serviceFee > 0) {
-    lines.push(`*Total: ${formatMoney(total, view.currency)}*`);
-  }
-  lines.push("");
-  lines.push(`Valores consultados em ${formatSearchedAt(view.items[0]?.searchedAt ?? view.createdAt)}. Preços e regras podem mudar até a emissão.`);
-  if (view.validUntil) lines.push(`Proposta válida até ${formatDateBR(view.validUntil)}.`);
-  if (view.mock) lines.push("⚠️ DADOS DE EXEMPLO — não é uma oferta real.");
-  if (link) {
-    lines.push("");
-    lines.push(`Veja os detalhes: ${link}`);
-  }
-  return lines.join("\n");
+export function isExpired(validUntil: string | null, today: string): boolean {
+  return Boolean(validUntil && validUntil < today);
 }
