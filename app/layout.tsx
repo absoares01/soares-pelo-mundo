@@ -1,37 +1,27 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, Playfair_Display } from "next/font/google";
 import type { ReactNode } from "react";
-import { CartProvider } from "@/components/CartProvider";
-import { Nav } from "@/components/Nav";
 import "./globals.css";
 
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const playfair = Playfair_Display({ subsets: ["latin"], variable: "--font-playfair", display: "swap" });
+
 export const metadata: Metadata = {
-  title: "Soares pelo Mundo — Buscador de passagens",
-  description: "Painel de busca e comparação de passagens para assessoria de viagens.",
-  robots: { index: false, follow: false },
-  // Ícone na tela de início do iPhone/iPad: vem de app/apple-icon.png (180x180).
-  appleWebApp: { capable: true, title: "Soares pelo Mundo", statusBarStyle: "default" },
+  title: { default: "TripFlow", template: "%s · TripFlow" },
+  description: "Clientes, orçamentos, roteiros e propostas para consultores e agências de viagem, em um só lugar.",
+  appleWebApp: { capable: true, title: "TripFlow", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: "#0f1f3d",
 };
-
-// Aplica o tema salvo antes da primeira pintura, evitando "piscar".
-const themeScript = `try{var t=localStorage.getItem('spm-theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
-      <body>
-        <CartProvider>
-          <Nav />
-          <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
-        </CartProvider>
-      </body>
+    <html lang="pt-BR" className={`${inter.variable} ${playfair.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

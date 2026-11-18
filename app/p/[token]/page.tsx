@@ -1,62 +1,57 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import { PrintButton } from "@/components/PrintButton";
-import { ProposalView } from "@/components/ProposalView";
-import type { ProposalView as View } from "@/lib/proposal";
-import { sanitizeItem } from "@/lib/proposal";
-import { adminConfigured } from "@/lib/supabase/env";
+import { ProposalDocument } from "@/components/proposals/ProposalDocument";
+import { RespondButtons } from "@/components/proposals/RespondButtons";
+import { Logo } from "@/components/ui";
+import { todayISO } from "@/lib/format";
+import { isExpired, loadProposalBundle } from "@/lib/proposal";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { ProposalItem } from "@/lib/types";
+import { adminConfigured } from "@/lib/supabase/env";
+import type { Proposal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Proposta de viagem", robots: { index: false, follow: false } };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function Message({ title, text }: { title: string; text: string }) {
+  return (
+    <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-3 px-6 text-center">
+      <Logo />
+      <h1 className="mt-4 text-2xl font-semibold text-navy-900">{title}</h1>
+      <p className="text-sm text-navy-600">{text}</p>
+    </main>
+  );
+}
+
 export default async function PublicProposalPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  if (!UUID.test(token) || !adminConfigured()) notFound();
+  if (!adminConfigured()) return <Message title="Link indisponível" text="O servidor ainda não está configurado para exibir propostas compartilhadas." />;
+  if (!UUID.test(token)) return <Message title="Proposta não encontrada" text="Confira se o link está completo." />;
 
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("proposals")
-    .select("title,items,currency,service_fee,message,valid_until,created_at,clients(name)")
-    .eq("token", token)
-    .maybeSingle();
-  if (!data) notFound();
+  const db = createAdminClient();
+  const { data } = await db.from("tf_proposals").select("*").eq("share_token", token).maybeSingle();
+  const proposal = data as Proposal | null;
+  if (!proposal || proposal.status === "rascunho") return <Message title="Proposta não encontrada" text="Este link não existe ou a proposta ainda não foi publicada. Fale com o seu consultor." />;
 
-  const row = data as unknown as {
-    title: string;
-    items: ProposalItem[];
-    currency: string;
-    service_fee: number;
-    message: string | null;
-    valid_until: string | null;
-    created_at: string;
-    clients: { name: string } | { name: string }[] | null;
-  };
-  const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
-  const items = row.items.map(sanitizeItem);
-
-  // Só nome do cliente, nunca e-mail, telefone ou observações internas.
-  const view: View = {
-    title: row.title,
-    clientName: client?.name ?? null,
-    currency: row.currency,
-    items,
-    serviceFee: Number(row.service_fee) || 0,
-    message: row.message,
-    validUntil: row.valid_until,
-    createdAt: row.created_at,
-    mock: items.some((i) => i.mock),
-  };
+  const bundle = await loadProposalBundle(db, proposal);
+  const expired = isExpired(proposal.valid_until, todayISO());
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8">
-      <ProposalView view={view} />
-      <div className="no-print mx-auto mt-6 max-w-3xl">
-        <PrintButton />
+    <main className="mx-auto max-w-3xl px-4 py-6 print:max-w-none print:p-0">
+      <div className="no-print mb-4 flex justify-end">
+        <PrintButton label="Baixar PDF" />
       </div>
-    </div>
+      <ProposalDocument bundle={bundle}>
+        {expired && proposal.status === "enviada" ? (
+          <div className="no-print rounded-2xl border border-amber-300 bg-amber-50 p-5 text-center text-amber-900">
+            <p className="font-semibold">Esta proposta expirou.</p>
+            <p className="text-sm">Fale com o seu consultor para renovar os valores.</p>
+          </div>
+        ) : (
+          <RespondButtons token={token} initial={proposal.status as "enviada" | "aceita" | "recusada"} />
+        )}
+      </ProposalDocument>
+    </main>
   );
 }
